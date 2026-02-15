@@ -289,7 +289,7 @@ export default function ImageEditorCropper() {
                       <HeightIcon color="action" sx={{ transform: 'rotate(180deg)' }} />
                     </Stack>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                      Or drag the bottom border of the image container
+                      You can also drag the bottom border of the image container to resize it
                     </Typography>
                   </Box>
                 )}
