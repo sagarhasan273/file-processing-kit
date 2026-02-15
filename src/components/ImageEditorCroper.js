@@ -294,7 +294,7 @@ export default function ImageEditorCropper() {
                   </Box>
                 )}
 
-                {/* Quick Actions */}
+                {/* Actions */}
                 {imgSrc && (
                   <Box>
                     <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
