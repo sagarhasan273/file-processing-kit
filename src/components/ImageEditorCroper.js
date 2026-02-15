@@ -298,7 +298,7 @@ export default function ImageEditorCropper() {
                 {imgSrc && (
                   <Box>
                     <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
-                      Quick Actions
+                      Actions
                     </Typography>
                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                       <Tooltip title="Zoom In">
