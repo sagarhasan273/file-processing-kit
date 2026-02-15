@@ -241,7 +241,7 @@ export default function ImageEditorCropper() {
   return (
     <Box sx={{ p: 3, maxWidth: '1400px', margin: '0 auto' }}>
       <Typography variant="h4" gutterBottom sx={{ fontWeight: 600, color: 'primary.main' }}>
-        Image Editor with Resizable Container
+        Image Editor - Crop & Resize Container
       </Typography>
       <Typography variant="body1" color="text.secondary" gutterBottom>
         Drag the bottom border of the image container to resize it vertically
