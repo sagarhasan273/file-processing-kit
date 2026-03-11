@@ -1418,7 +1418,7 @@ function ToolCard({ tool, onClick }) {
 // ============================================================
 // MAIN APP
 // ============================================================
-export default function App() {
+export default function FileProcessing() {
   const [activeTool, setActiveTool] = useState(null);
 
   return (
@@ -1480,7 +1480,7 @@ export default function App() {
                 <span
                   style={{ fontFamily: "'Space Mono', monospace", fontSize: 10, color: DS.textMuted, marginLeft: 8 }}
                 >
-                  PRO
+                  Beta
                 </span>
               </div>
             </div>

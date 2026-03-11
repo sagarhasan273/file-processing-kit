@@ -1,11 +1,11 @@
 import { Box } from '@mui/material';
 import './App.css';
-import ImageEditorCroper from './components/ImageEditorCroper';
+import FileProcessing from './components/file-processing';
 
 function App() {
   return (
     <Box>
-      <ImageEditorCroper />
+      <FileProcessing />
     </Box>
   );
 }
