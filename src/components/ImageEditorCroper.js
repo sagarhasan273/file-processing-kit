@@ -1,634 +1,859 @@
-import {
-  AspectRatio as AspectRatioIcon,
-  Delete as DeleteIcon,
-  Download as DownloadIcon,
-  Height as HeightIcon,
-  RestartAlt as RestartAltIcon,
-  RotateLeft as RotateLeftIcon,
-  RotateRight as RotateRightIcon,
-  Upload as UploadIcon,
-  ZoomIn as ZoomInIcon,
-  ZoomOut as ZoomOutIcon,
-} from '@mui/icons-material';
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardActions,
-  CardContent,
-  Chip,
-  Divider,
-  Grid,
-  IconButton,
-  Paper,
-  Slider,
-  Stack,
-  Tooltip,
-  Typography,
-} from '@mui/material';
-import { useCallback, useRef, useState } from 'react';
-import ReactCrop, { centerCrop, convertToPixelCrop, makeAspectCrop } from 'react-image-crop';
-import 'react-image-crop/dist/ReactCrop.css';
-import { canvasPreview } from '../common/canvasPreview';
-import { useDebounceEffect } from '../common/useDebounceEffect';
+/* eslint-disable consistent-return */
+/* eslint-disable max-len */
+/* eslint-disable react/button-has-type */
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-// Helper functions
-function centerAspectCrop(mediaWidth, mediaHeight, aspect) {
-  return centerCrop(
-    makeAspectCrop(
-      {
-        unit: '%',
-        width: 90,
-      },
-      aspect,
-      mediaWidth,
-      mediaHeight
-    ),
-    mediaWidth,
-    mediaHeight
-  );
-}
-
-// Aspect ratio presets
+// ─── Constants ────────────────────────────────────────────────────────────────
+const TO_RADIANS = Math.PI / 180;
 const ASPECT_RATIOS = [
-  { label: 'Free', value: undefined },
+  { label: 'Free', value: null },
   { label: '1:1', value: 1 },
   { label: '4:3', value: 4 / 3 },
   { label: '16:9', value: 16 / 9 },
   { label: '3:2', value: 3 / 2 },
   { label: '2:3', value: 2 / 3 },
+  { label: '9:16', value: 9 / 16 },
 ];
 
-export default function ImageEditorCropper() {
+// ─── useDebounceEffect ────────────────────────────────────────────────────────
+function useDebounceEffect(fn, waitTime, deps) {
+  useEffect(() => {
+    const t = setTimeout(() => fn(...deps), waitTime);
+    return () => clearTimeout(t);
+  }, deps);
+}
+
+// ─── canvasPreview ────────────────────────────────────────────────────────────
+async function canvasPreview(image, canvas, crop, scale = 1, rotate = 0) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const scaleX = image.naturalWidth / image.width;
+  const scaleY = image.naturalHeight / image.height;
+  const pixelRatio = window.devicePixelRatio || 1;
+
+  canvas.width = Math.floor(crop.width * scaleX * pixelRatio);
+  canvas.height = Math.floor(crop.height * scaleY * pixelRatio);
+
+  ctx.scale(pixelRatio, pixelRatio);
+  ctx.imageSmoothingQuality = 'high';
+
+  const cropX = crop.x * scaleX;
+  const cropY = crop.y * scaleY;
+  const rotateRads = rotate * TO_RADIANS;
+  const centerX = image.naturalWidth / 2;
+  const centerY = image.naturalHeight / 2;
+
+  ctx.save();
+  ctx.translate(-cropX, -cropY);
+  ctx.translate(centerX, centerY);
+  ctx.rotate(rotateRads);
+  ctx.scale(scale, scale);
+  ctx.translate(-centerX, -centerY);
+  ctx.drawImage(image, 0, 0, image.naturalWidth, image.naturalHeight, 0, 0, image.naturalWidth, image.naturalHeight);
+  ctx.restore();
+}
+
+// ─── Crop Overlay Component ───────────────────────────────────────────────────
+function CropOverlay({ imgRef, crop, setCrop, setCompletedCrop, aspect }) {
+  const dragging = useRef(null);
+  const overlayRef = useRef(null);
+
+  const getRelPos = (e, el) => {
+    const r = el.getBoundingClientRect();
+    const cx = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+    const cy = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
+    return { x: (cx / r.width) * 100, y: (cy / r.height) * 100 };
+  };
+
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+  const onPointerDown = useCallback(
+    (e, type) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const pos = getRelPos(e, overlayRef.current);
+      dragging.current = { type, startPos: pos, startCrop: crop ? { ...crop } : null };
+    },
+    [crop]
+  );
+
+  const onOverlayDown = useCallback((e) => {
+    if (e.target !== overlayRef.current) return;
+    const pos = getRelPos(e, overlayRef.current);
+    dragging.current = { type: 'new', startPos: pos };
+  }, []);
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!dragging.current || !overlayRef.current) return;
+      const pos = getRelPos(e, overlayRef.current);
+      const { type, startPos, startCrop } = dragging.current;
+
+      if (type === 'new') {
+        let x = Math.min(startPos.x, pos.x);
+        let y = Math.min(startPos.y, pos.y);
+        const w = Math.abs(pos.x - startPos.x);
+        let h = Math.abs(pos.y - startPos.y);
+        if (aspect) h = w / aspect;
+        x = clamp(x, 0, 100 - w);
+        y = clamp(y, 0, 100 - h);
+        setCrop({ x, y, width: w, height: h, unit: '%' });
+      } else if (type === 'move' && startCrop) {
+        const dx = pos.x - startPos.x;
+        const dy = pos.y - startPos.y;
+        const nx = clamp(startCrop.x + dx, 0, 100 - startCrop.width);
+        const ny = clamp(startCrop.y + dy, 0, 100 - startCrop.height);
+        setCrop({ ...startCrop, x: nx, y: ny });
+      } else if (startCrop) {
+        let { x, y, width: w, height: h } = startCrop;
+        const dx = pos.x - startPos.x;
+        const dy = pos.y - startPos.y;
+        if (type === 'se') {
+          w = clamp(w + dx, 5, 100 - x);
+          h = aspect ? w / aspect : clamp(h + dy, 5, 100 - y);
+        } else if (type === 'sw') {
+          const nw = clamp(w - dx, 5, x + w);
+          const nx = x + (w - nw);
+          w = nw;
+          x = nx;
+          h = aspect ? w / aspect : clamp(h + dy, 5, 100 - y);
+        } else if (type === 'ne') {
+          w = clamp(w + dx, 5, 100 - x);
+          const nh = aspect ? w / aspect : clamp(h - dy, 5, y + h);
+          const ny = y + (h - nh);
+          h = nh;
+          y = ny;
+        } else if (type === 'nw') {
+          const nw = clamp(w - dx, 5, x + w);
+          const nx = x + (w - nw);
+          const nh = aspect ? nw / aspect : clamp(h - dy, 5, y + h);
+          const ny = y + (h - nh);
+          w = nw;
+          x = nx;
+          h = nh;
+          y = ny;
+        }
+        setCrop({ x, y, width: w, height: h, unit: '%' });
+      }
+    };
+    const onUp = () => {
+      if (dragging.current && crop) {
+        const img = imgRef.current;
+        if (img) {
+          setCompletedCrop({
+            x: (crop.x / 100) * img.width,
+            y: (crop.y / 100) * img.height,
+            width: (crop.width / 100) * img.width,
+            height: (crop.height / 100) * img.height,
+            unit: 'px',
+          });
+        }
+      }
+      dragging.current = null;
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+    };
+  }, [crop, aspect]);
+
+  const handles = crop
+    ? [
+        { type: 'nw', style: { top: -5, left: -5, cursor: 'nw-resize' } },
+        { type: 'ne', style: { top: -5, right: -5, cursor: 'ne-resize' } },
+        { type: 'sw', style: { bottom: -5, left: -5, cursor: 'sw-resize' } },
+        { type: 'se', style: { bottom: -5, right: -5, cursor: 'se-resize' } },
+      ]
+    : [];
+
+  return (
+    <div
+      ref={overlayRef}
+      onMouseDown={onOverlayDown}
+      onTouchStart={onOverlayDown}
+      style={{ position: 'absolute', inset: 0, cursor: 'crosshair' }}
+    >
+      {crop && crop.width > 0 && (
+        <>
+          {/* Dark mask */}
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)', pointerEvents: 'none' }} />
+          {/* Crop box cutout */}
+          <div
+            onMouseDown={(e) => onPointerDown(e, 'move')}
+            onTouchStart={(e) => onPointerDown(e, 'move')}
+            style={{
+              position: 'absolute',
+              left: `${crop.x}%`,
+              top: `${crop.y}%`,
+              width: `${crop.width}%`,
+              height: `${crop.height}%`,
+              boxShadow: '0 0 0 9999px rgba(0,0,0,0.45)',
+              border: '1.5px solid rgba(255,255,255,0.85)',
+              cursor: 'move',
+              boxSizing: 'border-box',
+            }}
+          >
+            {/* Rule of thirds */}
+            {[33.3, 66.6].map((p) => (
+              <div
+                key={`v${p}`}
+                style={{
+                  position: 'absolute',
+                  left: `${p}%`,
+                  top: 0,
+                  bottom: 0,
+                  borderLeft: '1px solid rgba(255,255,255,0.25)',
+                  pointerEvents: 'none',
+                }}
+              />
+            ))}
+            {[33.3, 66.6].map((p) => (
+              <div
+                key={`h${p}`}
+                style={{
+                  position: 'absolute',
+                  top: `${p}%`,
+                  left: 0,
+                  right: 0,
+                  borderTop: '1px solid rgba(255,255,255,0.25)',
+                  pointerEvents: 'none',
+                }}
+              />
+            ))}
+            {handles.map(({ type, style }) => (
+              <div
+                key={type}
+                onMouseDown={(e) => onPointerDown(e, type)}
+                onTouchStart={(e) => onPointerDown(e, type)}
+                style={{
+                  position: 'absolute',
+                  width: 12,
+                  height: 12,
+                  background: '#fff',
+                  border: '2px solid #0ea5e9',
+                  borderRadius: 2,
+                  zIndex: 10,
+                  ...style,
+                }}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+export default function ImageEditor() {
   const [imgSrc, setImgSrc] = useState(null);
-  const previewCanvasRef = useRef(null);
+  const [imgName, setImgName] = useState('');
   const imgRef = useRef(null);
+  const previewCanvasRef = useRef(null);
   const fileInputRef = useRef(null);
+  const containerRef = useRef(null);
+
   const [crop, setCrop] = useState(null);
   const [completedCrop, setCompletedCrop] = useState(null);
   const [scale, setScale] = useState(1);
   const [rotate, setRotate] = useState(0);
-  const [aspect, setAspect] = useState(undefined);
-  const [isProcessing, setIsProcessing] = useState(false);
-
-  // New state for container resizing
-  const [containerHeight, setContainerHeight] = useState(400); // Initial height in px
+  const [aspect, setAspect] = useState(null);
+  const [containerH, setContainerH] = useState(420);
   const [isResizing, setIsResizing] = useState(false);
-  const containerRef = useRef(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [dragging, setDragging] = useState(false);
 
-  function onSelectFile(e) {
-    if (e.target.files && e.target.files.length > 0) {
-      setCrop(null);
-      const reader = new FileReader();
-      reader.addEventListener('load', () => setImgSrc(reader.result?.toString() || ''));
-      reader.readAsDataURL(e.target.files[0]);
+  const showToast = (msg, type = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 2800);
+  };
+
+  // ── File handling ──────────────────────────────────────────────────────────
+  const loadFile = (file) => {
+    if (!file || !file.type.startsWith('image/')) return showToast('Please upload a valid image file.', 'error');
+    setImgName(file.name);
+    setCrop(null);
+    setCompletedCrop(null);
+    const reader = new FileReader();
+    reader.addEventListener('load', () => setImgSrc(reader.result?.toString() || ''));
+    reader.readAsDataURL(file);
+  };
+
+  const onSelectFile = (e) => {
+    if (e.target.files?.[0]) loadFile(e.target.files[0]);
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDragging(false);
+    if (e.dataTransfer.files?.[0]) loadFile(e.dataTransfer.files[0]);
+  };
+
+  // ── Image load ──────────────────────────────────────────────────────────────
+  const onImageLoad = () => {
+    if (aspect && imgRef.current) {
+      const { width, height } = imgRef.current;
+      const w = 80;
+      const h = w / aspect;
+      const x = (100 - w) / 2;
+      const y = (100 - h) / 2;
+      const newCrop = { x, y, width: w, height: h, unit: '%' };
+      setCrop(newCrop);
+      setCompletedCrop({
+        x: (x / 100) * width,
+        y: (y / 100) * height,
+        width: (w / 100) * width,
+        height: (h / 100) * height,
+        unit: 'px',
+      });
     }
-  }
+  };
 
-  function onImageLoad(e) {
-    if (aspect) {
-      const { width, height } = e.currentTarget;
-      setCrop(centerAspectCrop(width, height, aspect));
-    }
-  }
-
-  async function onDownloadCropClick() {
-    const image = imgRef.current;
-    const previewCanvas = previewCanvasRef.current;
-    if (!image || !previewCanvas || !completedCrop) {
-      throw new Error('Crop canvas does not exist');
-    }
-
-    setIsProcessing(true);
-
-    const scaleX = image.naturalWidth / image.width;
-    const scaleY = image.naturalHeight / image.height;
-
-    const offscreen = new OffscreenCanvas(completedCrop.width * scaleX, completedCrop.height * scaleY);
-    const ctx = offscreen.getContext('2d');
-    if (!ctx) {
-      throw new Error('No 2d context');
-    }
-
-    ctx.drawImage(
-      previewCanvas,
-      0,
-      0,
-      previewCanvas.width,
-      previewCanvas.height,
-      0,
-      0,
-      offscreen.width,
-      offscreen.height
-    );
-
-    const blob = await offscreen.convertToBlob({
-      type: 'image/png',
-      quality: 0.95,
-    });
-
-    // Create download link
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `cropped-image-${Date.now()}.png`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    setIsProcessing(false);
-  }
-
+  // ── Preview ────────────────────────────────────────────────────────────────
   useDebounceEffect(
     async () => {
       if (completedCrop?.width && completedCrop?.height && imgRef.current && previewCanvasRef.current) {
-        canvasPreview(imgRef.current, previewCanvasRef.current, completedCrop, scale, rotate);
+        await canvasPreview(imgRef.current, previewCanvasRef.current, completedCrop, scale, rotate);
       }
     },
     100,
     [completedCrop, scale, rotate]
   );
 
+  // ── Download ───────────────────────────────────────────────────────────────
+  const onDownload = async () => {
+    const image = imgRef.current;
+    const canvas = previewCanvasRef.current;
+    if (!image || !canvas || !completedCrop) return showToast('Please make a crop selection first.', 'error');
+    setIsProcessing(true);
+    try {
+      const scaleX = image.naturalWidth / image.width;
+      const scaleY = image.naturalHeight / image.height;
+      const offscreen = new OffscreenCanvas(completedCrop.width * scaleX, completedCrop.height * scaleY);
+      const ctx = offscreen.getContext('2d');
+      ctx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, offscreen.width, offscreen.height);
+      const blob = await offscreen.convertToBlob({ type: 'image/png', quality: 0.95 });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cropped-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('Image downloaded!');
+    } catch (err) {
+      showToast('Download failed.', 'error');
+    }
+    setIsProcessing(false);
+  };
+
+  // ── Controls ───────────────────────────────────────────────────────────────
   const handleReset = () => {
     setScale(1);
     setRotate(0);
-    setAspect(undefined);
+    setAspect(null);
     setCrop(null);
     setCompletedCrop(null);
-    setContainerHeight(400); // Reset container height
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    setContainerH(420);
   };
-
-  const handleClearImage = () => {
+  const handleClear = () => {
     setImgSrc(null);
+    setImgName('');
     handleReset();
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
-
-  const handleAspectRatioChange = (ratio) => {
-    setAspect(ratio);
-    if (ratio && imgRef.current) {
+  const handleAspect = (val) => {
+    setAspect(val);
+    if (val && imgRef.current) {
       const { width, height } = imgRef.current;
-      const newCrop = centerAspectCrop(width, height, ratio);
+      const w = 80;
+      const h = w / val;
+      const x = (100 - w) / 2;
+      const y = (100 - h) / 2;
+      const newCrop = { x, y, width: w, height: h, unit: '%' };
       setCrop(newCrop);
-      setCompletedCrop(convertToPixelCrop(newCrop, width, height));
+      setCompletedCrop({
+        x: (x / 100) * width,
+        y: (y / 100) * height,
+        width: (w / 100) * width,
+        height: (h / 100) * height,
+        unit: 'px',
+      });
+    } else {
+      setCrop(null);
+      setCompletedCrop(null);
     }
   };
 
-  const handleRotate = (direction) => {
-    setRotate((prev) => {
-      const newValue = direction === 'left' ? prev - 90 : prev + 90;
-      return ((newValue + 180) % 360) - 180;
-    });
-  };
-
-  const handleZoom = (direction) => {
-    setScale((prev) => {
-      const newValue = direction === 'in' ? prev + 0.1 : prev - 0.1;
-      return Math.min(Math.max(0.1, newValue), 3);
-    });
-  };
-
-  const handleSliderChange = (type, value) => {
-    if (type === 'scale') {
-      setScale(value);
-    } else if (type === 'rotate') {
-      setRotate(value);
-    }
-  };
-
-  // Handle container resize with mouse
-  const handleResizeStart = useCallback(
+  // ── Container resize ───────────────────────────────────────────────────────
+  const onResizeStart = useCallback(
     (e) => {
       e.preventDefault();
-      e.stopPropagation();
       setIsResizing(true);
-
-      const startY = e.clientY || e.touches[0].clientY;
-      const startHeight = containerHeight;
-
-      const handleMouseMove = (moveEvent) => {
-        const currentY = moveEvent.clientY || moveEvent.touches[0].clientY;
-        const deltaY = currentY - startY;
-        const newHeight = Math.max(200, Math.min(800, startHeight + deltaY)); // Min 200px, Max 800px
-        setContainerHeight(newHeight);
+      const startY = e.clientY || e.touches?.[0]?.clientY;
+      const startH = containerH;
+      const onMove = (ev) => {
+        const curY = ev.clientY || ev.touches?.[0]?.clientY;
+        setContainerH(Math.max(220, Math.min(820, startH + (curY - startY))));
       };
-
-      const handleMouseUp = () => {
+      const onUp = () => {
         setIsResizing(false);
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-        document.removeEventListener('touchmove', handleMouseMove);
-        document.removeEventListener('touchend', handleMouseUp);
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
       };
-
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.addEventListener('touchmove', handleMouseMove);
-      document.addEventListener('touchend', handleMouseUp);
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
     },
-    [containerHeight]
+    [containerH]
   );
 
-  // Handle container resize with slider
-  const handleContainerHeightChange = (value) => {
-    setContainerHeight(Math.max(200, Math.min(800, value)));
-  };
+  // ─── Render ────────────────────────────────────────────────────────────────
+  const hasImage = !!imgSrc;
+  const hasCrop = !!(completedCrop?.width && completedCrop?.height);
 
   return (
-    <Box sx={{ p: 3, maxWidth: '1400px', margin: '0 auto' }}>
-      <Typography variant="h4" gutterBottom sx={{ fontWeight: 600, color: 'primary.main' }}>
-        Image Editor - Crop & Resize Container
-      </Typography>
-      <Typography variant="body1" color="text.secondary" gutterBottom>
-        Drag the bottom border of the image container to resize it vertically
-      </Typography>
+    <div
+      style={{
+        fontFamily: "'DM Sans', 'Segoe UI', sans-serif",
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)',
+        color: '#e2e8f0',
+        padding: '24px 16px',
+      }}
+    >
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap');
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); } ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+        .ctrl-btn { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #e2e8f0; border-radius: 10px; padding: 8px 14px; cursor: pointer; font-size: 13px; font-family: inherit; font-weight: 500; transition: all .15s; display: flex; align-items: center; gap: 6px; }
+        .ctrl-btn:hover:not(:disabled) { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.25); }
+        .ctrl-btn:disabled { opacity: .35; cursor: not-allowed; }
+        .ctrl-btn.active { background: rgba(14,165,233,0.25); border-color: #0ea5e9; color: #38bdf8; }
+        .ctrl-btn.danger { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.4); color: #fca5a5; }
+        .ctrl-btn.danger:hover:not(:disabled) { background: rgba(239,68,68,0.25); }
+        .ctrl-btn.primary { background: linear-gradient(135deg, #0ea5e9, #6366f1); border-color: transparent; color: #fff; }
+        .ctrl-btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
+        .range-input { width: 100%; accent-color: #0ea5e9; height: 4px; }
+        .chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.07); cursor: pointer; font-size: 12px; font-weight: 500; transition: all .15s; color: #cbd5e1; }
+        .chip:hover { background: rgba(255,255,255,0.12); }
+        .chip.active { background: rgba(14,165,233,0.3); border-color: #0ea5e9; color: #38bdf8; }
+        .panel { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 16px; }
+        .panel-title { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 12px; }
+        .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 10px 20px; border-radius: 10px; font-size: 14px; font-weight: 500; z-index: 9999; animation: slideUp .25s ease; pointer-events: none; }
+        @keyframes slideUp { from { opacity: 0; transform: translateX(-50%) translateY(12px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+      `}</style>
 
-      <Card elevation={3} sx={{ mt: 3 }}>
-        <CardContent>
-          <Grid container spacing={3}>
-            {/* Left Panel - Controls */}
-            <Grid item xs={12} md={4}>
-              <Stack spacing={3}>
-                {/* File Upload */}
-                <Box>
-                  <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
-                    Upload Image
-                  </Typography>
-                  <Button variant="outlined" component="label" startIcon={<UploadIcon />} fullWidth sx={{ py: 1.5 }}>
-                    Choose Image
-                    <input ref={fileInputRef} type="file" accept="image/*" onChange={onSelectFile} hidden />
-                  </Button>
-                  {imgSrc && (
-                    <Alert severity="success" sx={{ mt: 1 }}>
-                      Image loaded successfully
-                    </Alert>
+      {/* Header */}
+      <div style={{ maxWidth: 1200, margin: '0 auto 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              background: 'linear-gradient(135deg,#0ea5e9,#6366f1)',
+              borderRadius: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 18,
+            }}
+          >
+            ✂
+          </div>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 22,
+              fontFamily: "'Space Grotesk', sans-serif",
+              fontWeight: 700,
+              background: 'linear-gradient(90deg,#38bdf8,#a78bfa)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+            }}
+          >
+            Image Editor
+          </h1>
+        </div>
+        <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>Crop · Rotate · Scale · Download</p>
+      </div>
+
+      <div
+        style={{
+          maxWidth: 1200,
+          margin: '0 auto',
+          display: 'grid',
+          gridTemplateColumns: hasImage ? '280px 1fr' : '1fr',
+          gap: 16,
+        }}
+      >
+        {/* ── Sidebar ──────────────────────────────────────────────────────── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Upload */}
+          <div className="panel">
+            <div className="panel-title">📁 Image</div>
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={onDrop}
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                border: `2px dashed ${dragging ? '#0ea5e9' : 'rgba(255,255,255,0.15)'}`,
+                borderRadius: 12,
+                padding: '20px 12px',
+                textAlign: 'center',
+                cursor: 'pointer',
+                background: dragging ? 'rgba(14,165,233,0.08)' : 'rgba(255,255,255,0.03)',
+                transition: 'all .2s',
+              }}
+            >
+              <div style={{ fontSize: 28, marginBottom: 6 }}>🖼️</div>
+              <div style={{ fontSize: 13, color: '#94a3b8', fontWeight: 500 }}>
+                {hasImage ? imgName || 'Image loaded' : 'Drop image or click'}
+              </div>
+              <div style={{ fontSize: 11, color: '#475569', marginTop: 4 }}>PNG, JPG, WEBP, GIF</div>
+            </div>
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={onSelectFile} hidden />
+            {hasImage && (
+              <button
+                className="ctrl-btn danger"
+                style={{ width: '100%', justifyContent: 'center', marginTop: 10 }}
+                onClick={handleClear}
+              >
+                🗑 Remove Image
+              </button>
+            )}
+          </div>
+
+          {hasImage && (
+            <>
+              {/* Aspect Ratio */}
+              <div className="panel">
+                <div className="panel-title">⬜ Aspect Ratio</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {ASPECT_RATIOS.map((r) => (
+                    <span
+                      key={r.label}
+                      className={`chip ${aspect === r.value ? 'active' : ''}`}
+                      onClick={() => handleAspect(r.value)}
+                    >
+                      {r.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Scale */}
+              <div className="panel">
+                <div className="panel-title">🔍 Scale</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <button
+                    className="ctrl-btn"
+                    style={{ padding: '6px 10px', fontSize: 16 }}
+                    onClick={() => setScale((s) => Math.max(0.1, +(s - 0.1).toFixed(1)))}
+                    disabled={scale <= 0.1}
+                  >
+                    −
+                  </button>
+                  <input
+                    type="range"
+                    className="range-input"
+                    min={0.1}
+                    max={3}
+                    step={0.05}
+                    value={scale}
+                    onChange={(e) => setScale(+e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    className="ctrl-btn"
+                    style={{ padding: '6px 10px', fontSize: 16 }}
+                    onClick={() => setScale((s) => Math.min(3, +(s + 0.1).toFixed(1)))}
+                    disabled={scale >= 3}
+                  >
+                    +
+                  </button>
+                </div>
+                <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', marginTop: 6 }}>
+                  {scale.toFixed(2)}×
+                </div>
+              </div>
+
+              {/* Rotate */}
+              <div className="panel">
+                <div className="panel-title">🔄 Rotation</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <button
+                    className="ctrl-btn"
+                    style={{ padding: '6px 10px' }}
+                    onClick={() => setRotate((r) => ((r - 90 + 180) % 360) - 180)}
+                  >
+                    ↺
+                  </button>
+                  <input
+                    type="range"
+                    className="range-input"
+                    min={-180}
+                    max={180}
+                    step={1}
+                    value={rotate}
+                    onChange={(e) => setRotate(+e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    className="ctrl-btn"
+                    style={{ padding: '6px 10px' }}
+                    onClick={() => setRotate((r) => ((r + 90 + 180) % 360) - 180)}
+                  >
+                    ↻
+                  </button>
+                </div>
+                <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', marginTop: 6 }}>{rotate}°</div>
+              </div>
+
+              {/* Container height */}
+              <div className="panel">
+                <div className="panel-title">↕ Editor Height</div>
+                <input
+                  type="range"
+                  className="range-input"
+                  min={220}
+                  max={820}
+                  step={10}
+                  value={containerH}
+                  onChange={(e) => setContainerH(+e.target.value)}
+                  style={{ width: '100%' }}
+                />
+                <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', marginTop: 6 }}>{containerH}px</div>
+              </div>
+
+              {/* Reset */}
+              <button className="ctrl-btn" style={{ justifyContent: 'center' }} onClick={handleReset}>
+                ↺ Reset All Settings
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* ── Main Area ────────────────────────────────────────────────────── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {!hasImage ? (
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={onDrop}
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                border: `2px dashed ${dragging ? '#0ea5e9' : 'rgba(255,255,255,0.12)'}`,
+                borderRadius: 20,
+                height: 460,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                background: 'rgba(255,255,255,0.02)',
+                transition: 'all .2s',
+                gap: 12,
+              }}
+            >
+              <div style={{ fontSize: 56 }}>🖼️</div>
+              <div
+                style={{ fontSize: 20, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", color: '#94a3b8' }}
+              >
+                Drop an image here
+              </div>
+              <div style={{ fontSize: 14, color: '#475569' }}>or click to browse</div>
+              <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                {['PNG', 'JPG', 'WEBP', 'GIF', 'BMP'].map((f) => (
+                  <span key={f} className="chip">
+                    {f}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Image editor */}
+              <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
+                <div
+                  style={{
+                    padding: '10px 14px',
+                    borderBottom: '1px solid rgba(255,255,255,0.08)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <span style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>
+                    ✏️ Drag to crop · Handles to resize · Bottom bar to resize editor
+                  </span>
+                  {hasCrop && (
+                    <span style={{ fontSize: 11, color: '#0ea5e9' }}>
+                      {Math.round(completedCrop.width)} × {Math.round(completedCrop.height)}px
+                    </span>
                   )}
-                </Box>
+                </div>
 
-                {/* Container Height Control */}
-                {imgSrc && (
-                  <Box>
-                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
-                      Container Height: {containerHeight}px
-                    </Typography>
-                    <Stack direction="row" spacing={2} alignItems="center">
-                      <HeightIcon color="action" />
-                      <Slider
-                        value={containerHeight}
-                        onChange={(_, value) => handleContainerHeightChange(value)}
-                        min={200}
-                        max={800}
-                        step={10}
-                        disabled={!imgSrc}
-                        sx={{ flex: 1 }}
+                <div
+                  ref={containerRef}
+                  style={{
+                    position: 'relative',
+                    height: containerH,
+                    background:
+                      'repeating-conic-gradient(rgba(255,255,255,0.03) 0% 25%, transparent 0% 50%) 0 0 / 20px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                    transition: isResizing ? 'none' : 'height .2s',
+                  }}
+                >
+                  <div style={{ position: 'relative', display: 'inline-block' }}>
+                    <img
+                      ref={imgRef}
+                      src={imgSrc}
+                      alt="Edit"
+                      onLoad={onImageLoad}
+                      style={{
+                        display: 'block',
+                        maxWidth: '100%',
+                        maxHeight: `${containerH - 40}px`,
+                        transform: `scale(${scale}) rotate(${rotate}deg)`,
+                        transformOrigin: 'center',
+                        userSelect: 'none',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                    {imgRef.current && (
+                      <CropOverlay
+                        imgRef={imgRef}
+                        crop={crop}
+                        setCrop={(c) => {
+                          setCrop(c);
+                          const img = imgRef.current;
+                          if (img && c)
+                            setCompletedCrop({
+                              x: (c.x / 100) * img.width,
+                              y: (c.y / 100) * img.height,
+                              width: (c.width / 100) * img.width,
+                              height: (c.height / 100) * img.height,
+                              unit: 'px',
+                            });
+                        }}
+                        setCompletedCrop={setCompletedCrop}
+                        aspect={aspect}
                       />
-                      <HeightIcon color="action" sx={{ transform: 'rotate(180deg)' }} />
-                    </Stack>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                      You can also drag the bottom border of the image container to resize it
-                    </Typography>
-                  </Box>
-                )}
+                    )}
+                  </div>
 
-                {/* Actions */}
-                {imgSrc && (
-                  <Box>
-                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
-                      Actions
-                    </Typography>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                      <Tooltip title="Zoom In">
-                        <IconButton color="primary" onClick={() => handleZoom('in')} disabled={!imgSrc || scale >= 3}>
-                          <ZoomInIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Zoom Out">
-                        <IconButton
-                          color="primary"
-                          onClick={() => handleZoom('out')}
-                          disabled={!imgSrc || scale <= 0.1}
-                        >
-                          <ZoomOutIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Rotate Left">
-                        <IconButton color="primary" onClick={() => handleRotate('left')} disabled={!imgSrc}>
-                          <RotateLeftIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Rotate Right">
-                        <IconButton color="primary" onClick={() => handleRotate('right')} disabled={!imgSrc}>
-                          <RotateRightIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Reset All">
-                        <IconButton color="error" onClick={handleReset} disabled={!imgSrc}>
-                          <RestartAltIcon />
-                        </IconButton>
-                      </Tooltip>
-                    </Stack>
-                  </Box>
-                )}
-
-                {/* Scale Control */}
-                {imgSrc && (
-                  <Box>
-                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
-                      Scale: {scale.toFixed(1)}x
-                    </Typography>
-                    <Stack direction="row" spacing={2} alignItems="center">
-                      <ZoomOutIcon color="action" />
-                      <Slider
-                        value={scale}
-                        onChange={(_, value) => handleSliderChange('scale', value)}
-                        min={0.1}
-                        max={3}
-                        step={0.1}
-                        disabled={!imgSrc}
-                        sx={{ flex: 1 }}
-                      />
-                      <ZoomInIcon color="action" />
-                    </Stack>
-                  </Box>
-                )}
-
-                {/* Rotation Control */}
-                {imgSrc && (
-                  <Box>
-                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
-                      Rotation: {rotate}°
-                    </Typography>
-                    <Stack direction="row" spacing={2} alignItems="center">
-                      <RotateLeftIcon color="action" />
-                      <Slider
-                        value={rotate}
-                        onChange={(_, value) => handleSliderChange('rotate', value)}
-                        min={-180}
-                        max={180}
-                        step={1}
-                        disabled={!imgSrc}
-                        sx={{ flex: 1 }}
-                      />
-                      <RotateRightIcon color="action" />
-                    </Stack>
-                  </Box>
-                )}
-
-                {/* Aspect Ratio */}
-                {imgSrc && (
-                  <Box>
-                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
-                      Aspect Ratio
-                    </Typography>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                      {ASPECT_RATIOS.map((ratio) => (
-                        <Chip
-                          key={ratio.label}
-                          label={ratio.label}
-                          onClick={() => handleAspectRatioChange(ratio.value)}
-                          color={aspect === ratio.value ? 'primary' : 'default'}
-                          variant={aspect === ratio.value ? 'filled' : 'outlined'}
-                          icon={ratio.label !== 'Free' && <AspectRatioIcon />}
-                          sx={{ mb: 1 }}
-                        />
-                      ))}
-                    </Stack>
-                  </Box>
-                )}
-              </Stack>
-            </Grid>
-
-            {/* Right Panel - Image and Preview */}
-            <Grid item xs={12} md={8}>
-              <Stack spacing={3}>
-                {/* Main Image Editor with Resizable Container */}
-                {imgSrc ? (
-                  <Box
-                    ref={containerRef}
-                    sx={{
-                      border: 1,
-                      borderColor: 'divider',
-                      borderRadius: 1,
-                      overflow: 'hidden',
-                      position: 'relative',
-                      height: `${containerHeight}px`,
+                  {/* Resize handle */}
+                  <div
+                    onMouseDown={onResizeStart}
+                    onTouchStart={onResizeStart}
+                    style={{
+                      position: 'absolute',
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      height: 8,
+                      background: isResizing ? '#0ea5e9' : 'rgba(255,255,255,0.1)',
+                      cursor: 'ns-resize',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      bgcolor: 'background.default',
-                      transition: isResizing ? 'none' : 'height 0.2s ease',
-                      cursor: 'default',
+                      transition: 'background .15s',
                     }}
                   >
-                    <ReactCrop
-                      crop={crop}
-                      onChange={(_, percentCrop) => setCrop(percentCrop)}
-                      onComplete={(c) => setCompletedCrop(c)}
-                      aspect={aspect}
-                      minHeight={50}
-                      minWidth={50}
-                      keepSelection
-                    >
-                      <img
-                        ref={imgRef}
-                        alt="Edit"
-                        src={imgSrc}
-                        style={{
-                          transform: `scale(${scale}) rotate(${rotate}deg)`,
-                          maxWidth: '100%',
-                          maxHeight: '100%',
-                          display: 'block',
-                        }}
-                        onLoad={onImageLoad}
-                      />
-                    </ReactCrop>
+                    <div style={{ width: 36, height: 3, background: 'rgba(255,255,255,0.4)', borderRadius: 2 }} />
+                  </div>
+                </div>
+              </div>
 
-                    {/* Resize Handle - Bottom Border */}
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        height: '8px',
-                        backgroundColor: isResizing ? 'primary.main' : 'grey.400',
-                        cursor: 'ns-resize',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        '&:hover': {
-                          backgroundColor: 'primary.main',
-                        },
-                        '&:active': {
-                          backgroundColor: 'primary.dark',
-                        },
-                      }}
-                      onMouseDown={handleResizeStart}
-                      onTouchStart={handleResizeStart}
-                    >
-                      <Box
-                        sx={{
-                          width: '40px',
-                          height: '4px',
-                          backgroundColor: 'white',
-                          borderRadius: '2px',
-                        }}
-                      />
-                    </Box>
-
-                    {/* Resize Handle Label */}
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        bottom: 12,
-                        right: 12,
-                        backgroundColor: 'rgba(0,0,0,0.7)',
-                        color: 'white',
-                        px: 1.5,
-                        py: 0.5,
-                        borderRadius: 1,
-                        fontSize: '0.75rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 0.5,
-                      }}
-                    >
-                      <HeightIcon sx={{ fontSize: '0.875rem' }} />
-                      {containerHeight}px
-                    </Box>
-
-                    {/* Resize Instructions */}
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        top: 10,
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        backgroundColor: 'rgba(0,0,0,0.7)',
-                        color: 'white',
-                        px: 2,
-                        py: 0.5,
-                        borderRadius: 1,
-                        fontSize: '0.75rem',
-                      }}
-                    >
-                      Drag bottom border to resize container
-                    </Box>
-                  </Box>
-                ) : (
-                  <Paper
-                    variant="outlined"
-                    sx={{
-                      p: 8,
-                      textAlign: 'center',
-                      border: '2px dashed',
-                      borderColor: 'divider',
-                      bgcolor: 'action.hover',
-                      height: '400px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
+              {/* Preview + Actions row */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: hasCrop ? '1fr auto' : '1fr',
+                  gap: 16,
+                  alignItems: 'start',
+                }}
+              >
+                {/* Action buttons */}
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button
+                    className="ctrl-btn primary"
+                    onClick={onDownload}
+                    disabled={!hasCrop || isProcessing}
+                    style={{ padding: '10px 20px', fontSize: 14 }}
                   >
-                    <UploadIcon sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
-                    <Typography variant="h6" color="text.secondary" gutterBottom>
-                      No Image Selected
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Upload an image to start editing
-                    </Typography>
-                  </Paper>
+                    {isProcessing ? '⏳ Processing…' : '⬇ Download Cropped'}
+                  </button>
+                  <button className="ctrl-btn danger" onClick={handleClear}>
+                    {' '}
+                    🗑 Clear
+                  </button>
+                  <button className="ctrl-btn" onClick={handleReset}>
+                    ↺ Reset
+                  </button>
+                  {!hasCrop && (
+                    <span style={{ fontSize: 12, color: '#475569' }}>Draw a crop box on the image to get started</span>
+                  )}
+                </div>
+
+                {/* Mini preview */}
+                {hasCrop && (
+                  <div className="panel" style={{ padding: 10 }}>
+                    <div className="panel-title" style={{ marginBottom: 8 }}>
+                      Preview
+                    </div>
+                    <canvas
+                      ref={previewCanvasRef}
+                      style={{
+                        display: 'block',
+                        maxWidth: 160,
+                        maxHeight: 120,
+                        borderRadius: 6,
+                        border: '1px solid rgba(255,255,255,0.1)',
+                      }}
+                    />
+                    <div style={{ fontSize: 10, color: '#475569', marginTop: 6, textAlign: 'center' }}>
+                      {Math.round(completedCrop.width)} × {Math.round(completedCrop.height)}px
+                    </div>
+                  </div>
                 )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
 
-                {/* Preview Section */}
-                {completedCrop && (
-                  <Box>
-                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
-                      Cropped Preview
-                    </Typography>
-                    <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.default' }}>
-                      <Stack spacing={2} alignItems="center">
-                        <Box
-                          sx={{
-                            border: 1,
-                            borderColor: 'divider',
-                            borderRadius: 1,
-                            overflow: 'hidden',
-                            bgcolor: 'white',
-                            width: '100%',
-                            display: 'flex',
-                            justifyContent: 'center',
-                          }}
-                        >
-                          <canvas
-                            ref={previewCanvasRef}
-                            style={{
-                              display: 'block',
-                              maxWidth: '100%',
-                              maxHeight: '300px',
-                            }}
-                          />
-                        </Box>
-                        <Typography variant="caption" color="text.secondary" align="center">
-                          Final output: {Math.round(completedCrop.width)} × {Math.round(completedCrop.height)} pixels
-                        </Typography>
-                      </Stack>
-                    </Paper>
-                  </Box>
-                )}
-              </Stack>
-            </Grid>
-          </Grid>
-        </CardContent>
-
-        {/* Action Buttons */}
-        <Divider />
-        <CardActions sx={{ justifyContent: 'flex-end', p: 2, gap: 2 }}>
-          <Button
-            startIcon={<DeleteIcon />}
-            onClick={handleClearImage}
-            disabled={!imgSrc}
-            color="error"
-            variant="outlined"
-          >
-            Clear
-          </Button>
-          <Button startIcon={<RestartAltIcon />} onClick={handleReset} disabled={!imgSrc} variant="outlined">
-            Reset All
-          </Button>
-          <Button
-            startIcon={<DownloadIcon />}
-            onClick={() => onDownloadCropClick()}
-            disabled={!imgSrc || !completedCrop || isProcessing}
-            variant="contained"
-            color="primary"
-            sx={{ minWidth: 150 }}
-          >
-            {isProcessing ? 'Processing...' : 'Download Cropped'}
-          </Button>
-        </CardActions>
-      </Card>
-
-      {/* Help Text */}
-      <Alert severity="info" sx={{ mt: 2 }}>
-        <Typography variant="body2">
-          <strong>Container Resize Features:</strong>
-          <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>
-            <li>
-              Drag the <strong>bottom border</strong> (grey/blue bar) up/down to resize container height
-            </li>
-            <li>Use the height slider in the controls panel for precise adjustment</li>
-            <li>Works with both mouse and touch devices</li>
-            <li>Container height range: 200px to 800px</li>
-            <li>The crop box inside can still be resized independently</li>
-          </ul>
-        </Typography>
-      </Alert>
-    </Box>
+      {/* Toast */}
+      {toast && (
+        <div
+          className="toast"
+          style={{
+            background: toast.type === 'error' ? 'rgba(239,68,68,0.95)' : 'rgba(16,185,129,0.95)',
+            color: '#fff',
+          }}
+        >
+          {toast.type === 'error' ? '⚠️ ' : '✅ '}
+          {toast.msg}
+        </div>
+      )}
+    </div>
   );
 }
