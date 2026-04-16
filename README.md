@@ -1,4 +1,5 @@
-# FileKit — Browser-Native File Processing Suite
+# FileKit — Browser-Native File Processing Suite 
+[https://www.file-processing-kit.com](https://www.file-processing-kit.com)
 
 A complete suite of browser-native tools for PDFs and images. Zero servers. Zero tracking. Everything runs directly in your browser.
 
