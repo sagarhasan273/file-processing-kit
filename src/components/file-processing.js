@@ -442,14 +442,7 @@ function ImageEditor({ onClose }) {
   }
 
   return (
-    <ToolPanel
-      title="Image Editor"
-      badge="BETA"
-      badgeColor={DS.blue}
-      icon={ICONS.image}
-      iconColor={DS.blue}
-      onClose={onClose}
-    >
+    <ToolPanel title="Image Editor" badge="BETA" badgeColor={DS.blue} icon={ICONS.image} iconColor={DS.blue} onClose={onClose}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 220px', gap: 20 }}>
         <div>
           {!imgSrc ? (
@@ -568,14 +561,7 @@ function ImagesToPdf({ onClose }) {
   };
 
   return (
-    <ToolPanel
-      title="Images → PDF"
-      badge="POPULAR"
-      badgeColor={DS.green}
-      icon={ICONS.pdf}
-      iconColor={DS.green}
-      onClose={onClose}
-    >
+    <ToolPanel title="Images → PDF" badge="POPULAR" badgeColor={DS.green} icon={ICONS.pdf} iconColor={DS.green} onClose={onClose}>
       <Dropzone onFiles={addImages} accept="image/*" multiple>
         <Icon d={ICONS.upload} size={24} />
         <span style={{ fontSize: 13 }}>Drop multiple images</span>
@@ -616,9 +602,7 @@ function ImagesToPdf({ onClose }) {
                     justifyContent: 'space-between',
                   }}
                 >
-                  <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: DS.accent }}>
-                    {idx + 1}
-                  </span>
+                  <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: DS.accent }}>{idx + 1}</span>
                   <button
                     onClick={() => remove(img.id)}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: DS.red, lineHeight: 1 }}
@@ -646,9 +630,7 @@ function ImagesToPdf({ onClose }) {
             </div>
           )}
           {done && (
-            <div
-              style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, color: DS.green, fontSize: 12 }}
-            >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, color: DS.green, fontSize: 12 }}>
               <Icon d={ICONS.check} size={14} color={DS.green} /> PDF downloaded successfully
             </div>
           )}
@@ -766,9 +748,7 @@ function PdfMerge({ onClose }) {
                 #{idx + 1}
               </span>
               <Icon d={ICONS.pdf} size={14} color={DS.orange} />
-              <span
-                style={{ flex: 1, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-              >
+              <span style={{ flex: 1, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {f.name}
               </span>
               <span style={{ fontSize: 11, color: DS.textMuted, fontFamily: "'Space Mono', monospace" }}>{f.size}</span>
@@ -787,9 +767,7 @@ function PdfMerge({ onClose }) {
             </div>
           )}
           {done && (
-            <div
-              style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, color: DS.green, fontSize: 12 }}
-            >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, color: DS.green, fontSize: 12 }}>
               <Icon d={ICONS.check} size={14} color={DS.green} /> Merged PDF downloaded
             </div>
           )}
@@ -807,9 +785,7 @@ function PdfMerge({ onClose }) {
               Clear
             </Btn>
           </div>
-          {files.length < 2 && (
-            <p style={{ fontSize: 11, color: DS.orange, marginTop: 8 }}>Add at least 2 PDF files to merge.</p>
-          )}
+          {files.length < 2 && <p style={{ fontSize: 11, color: DS.orange, marginTop: 8 }}>Add at least 2 PDF files to merge.</p>}
         </div>
       )}
     </ToolPanel>
@@ -895,9 +871,7 @@ function PdfCompress({ onClose }) {
           >
             <Icon d={ICONS.pdf} size={14} color={DS.accent} />
             <span style={{ flex: 1, fontSize: 13 }}>{file.name}</span>
-            <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 11, color: DS.textMuted }}>
-              {file.size}
-            </span>
+            <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 11, color: DS.textMuted }}>{file.size}</span>
           </div>
 
           <div style={{ marginBottom: 16 }}>
@@ -929,9 +903,7 @@ function PdfCompress({ onClose }) {
                   ['Saved', `${result.ratio}%`, DS.green],
                 ].map(([l, v, c]) => (
                   <div key={l}>
-                    <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 16, color: c, fontWeight: 700 }}>
-                      {v}
-                    </div>
+                    <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 16, color: c, fontWeight: 700 }}>{v}</div>
                     <div style={{ fontSize: 10, color: DS.textMuted, marginTop: 2 }}>{l}</div>
                   </div>
                 ))}
@@ -991,14 +963,7 @@ function OcrScanner({ onClose }) {
   const copyText = () => navigator.clipboard.writeText(text);
 
   return (
-    <ToolPanel
-      title="OCR Scanner"
-      badge="TESSERACT"
-      badgeColor={DS.blue}
-      icon={ICONS.ocr}
-      iconColor={DS.blue}
-      onClose={onClose}
-    >
+    <ToolPanel title="OCR Scanner" badge="TESSERACT" badgeColor={DS.blue} icon={ICONS.ocr} iconColor={DS.blue} onClose={onClose}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div>
           {!image ? (
@@ -1393,9 +1358,7 @@ function ToolCard({ tool, onClick }) {
         </div>
         <Badge color={tool.badgeColor}>{tool.badge}</Badge>
       </div>
-      <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
-        {tool.title}
-      </div>
+      <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 14, fontWeight: 700, marginBottom: 6 }}>{tool.title}</div>
       <div style={{ fontSize: 13, color: DS.textMuted, lineHeight: 1.5 }}>{tool.desc}</div>
       <div
         style={{
@@ -1477,9 +1440,7 @@ export default function FileProcessing() {
                 >
                   FILEKIT
                 </span>
-                <span
-                  style={{ fontFamily: "'Space Mono', monospace", fontSize: 10, color: DS.textMuted, marginLeft: 8 }}
-                >
+                <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 10, color: DS.textMuted, marginLeft: 8 }}>
                   Beta
                 </span>
               </div>
@@ -1521,8 +1482,8 @@ export default function FileProcessing() {
                 No Uploads Required.
               </h1>
               <p style={{ color: DS.textMuted, fontSize: 15, maxWidth: 520, lineHeight: 1.7 }}>
-                A complete suite of browser-native tools for PDFs and images. Zero servers. Zero tracking. Everything
-                runs directly in your browser.
+                A complete suite of browser-native tools for PDFs and images. Zero servers. Zero tracking. Everything runs
+                directly in your browser.
               </p>
             </div>
           )}
