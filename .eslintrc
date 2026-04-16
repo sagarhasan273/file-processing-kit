@@ -60,7 +60,7 @@
       {
         "trailingComma": "es5",
         "singleQuote": true,
-        "printWidth": 120,
+        "printWidth": 130,
         "tabWidth": 2,
         "semi": true,
         "endOfLine": "auto"
